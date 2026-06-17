@@ -2,7 +2,8 @@ import httpx
 import json
 import os
 import time
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -61,17 +62,53 @@ async def schedule(data: dict):
 async def health():
     return {"ok": True}
 
-# MCP endpoint
-@app.post("/mcp/send")
-async def mcp_send(data: dict):
-    delay = data.get("delay_seconds", 0)
-    body = data.get("body", "")
-    title = data.get("title", "克")
-    items = load_scheduled()
-    items.append({
-        "title": title,
-        "body": body,
-        "send_at": time.time() + delay
-    })
-    save_scheduled(items)
-    return {"ok": True, "scheduled_at": time.time() + delay}
+@app.post("/mcp")
+async def mcp(request: Request):
+    body = await request.json()
+    method = body.get("method", "")
+    msg_id = body.get("id")
+
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0", "id": msg_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "bark-scheduler", "version": "1.0"}
+            }
+        }
+
+    if method == "tools/list":
+        return {
+            "jsonrpc": "2.0", "id": msg_id,
+            "result": {"tools": [{
+                "name": "send_message",
+                "description": "发送一条消息到yiyi的手机，可以延迟发送",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "body": {"type": "string", "description": "消息内容"},
+                        "delay_seconds": {"type": "number", "description": "延迟秒数，0表示立即发送"},
+                        "title": {"type": "string", "description": "消息标题，默认为克"}
+                    },
+                    "required": ["body"]
+                }
+            }]}
+        }
+
+    if method == "tools/call":
+        params = body.get("params", {})
+        args = params.get("arguments", {})
+        items = load_scheduled()
+        items.append({
+            "title": args.get("title", "克"),
+            "body": args["body"],
+            "send_at": time.time() + args.get("delay_seconds", 0)
+        })
+        save_scheduled(items)
+        return {
+            "jsonrpc": "2.0", "id": msg_id,
+            "result": {"content": [{"type": "text", "text": "已安排发送"}]}
+        }
+
+    return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
