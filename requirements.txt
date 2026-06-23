@@ -2,3 +2,5 @@ fastapi
 uvicorn[standard]
 httpx
 mcp
+chardet
+python-multipart
