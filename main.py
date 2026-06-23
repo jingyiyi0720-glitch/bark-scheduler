@@ -229,9 +229,19 @@ async def upload_book_api(
     title: str = Form("")
 ):
     raw = await file.read()
-    detected = chardet.detect(raw)
-    encoding = detected.get("encoding", "utf-8") or "utf-8"
-    content = raw.decode(encoding, errors="replace")
+    # 依次尝试常见中文编码
+    content = None
+    for enc in ["utf-8", "gb18030", "gbk", "gb2312", "big5"]:
+        try:
+            content = raw.decode(enc)
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+    if content is None:
+        # 全部失败，用 chardet 兜底
+        detected = chardet.detect(raw)
+        encoding = detected.get("encoding", "utf-8") or "utf-8"
+        content = raw.decode(encoding, errors="replace")
     if not title:
         title = file.filename.replace(".txt", "")
     result = do_book_upload(title, content)
